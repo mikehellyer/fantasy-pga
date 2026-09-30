@@ -5,5 +5,5 @@ apps, so it's fine in a public repo: it can only call the game's league function
 and those check each manager's secret token.
 """
 
-SUPABASE_URL = ""
-SUPABASE_KEY = ""
+SUPABASE_URL = "https://tujdslymjyqczdbhrzqm.supabase.co"
+SUPABASE_KEY = "sb_publishable_sae9vwe4QAr7rDzj7-8PBw_zbtwuwhf"

@@ -33,6 +33,11 @@ def self_test(report_path: str = "") -> int:
         winner = g.golfers[g.t.winner].name
         lines.append(f"played the {g.event.name}: {len(g.t.field)} golfers, won by {winner}")
         ok &= len(g.t.field) > 50
+        from .core.online import default_backend
+
+        backend = default_backend()
+        lines.append(f"online leagues: {'set up (' + backend.url + ')' if backend else 'NOT SET UP'}")
+        ok &= backend is not None
     except Exception as exc:  # report anything, never crash silently
         lines.append(f"FAILED: {exc!r}")
         ok = False
