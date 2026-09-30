@@ -1,0 +1,32 @@
+from fantasy_pga import __version__, updater
+
+
+def test_version_comparison():
+    assert updater.is_newer("v0.8.0", "0.7.0")
+    assert updater.is_newer("0.7.1", "0.7.0")
+    assert not updater.is_newer("v0.7.0", "0.7.0")
+    assert not updater.is_newer("0.6.9", "0.7.0")
+    assert updater.parse_version(__version__) >= (0, 1, 0)
+
+
+def test_pick_installer_for_each_platform():
+    assets = [
+        {"name": "Fantasy-PGA-0.8.0-macOS.dmg", "url": "mac"},
+        {"name": "Fantasy-PGA-0.8.0-Windows-Setup.exe", "url": "win"},
+        {"name": "fantasy-pga_0.8.0_amd64.deb", "url": "deb"},
+    ]
+    assert updater.pick_installer(assets, "darwin") == "mac"
+    assert updater.pick_installer(assets, "win32") == "win"
+    assert updater.pick_installer(assets, "linux") == "deb"
+    assert updater.pick_installer([], "linux") == ""
+
+
+def test_update_check_uses_bundled_certificates():
+    """The packaged app can't rely on the computer's certificate store (on a Mac the
+    bundled OpenSSL points at a folder that doesn't exist), so certifi's bundle is used."""
+    import certifi
+
+    ctx = updater.ssl_context()
+    assert ctx.verify_mode.name == "CERT_REQUIRED"
+    assert ctx.cert_store_stats()["x509_ca"] > 50  # loaded from certifi's cacert.pem
+    assert certifi.where().endswith("cacert.pem")
