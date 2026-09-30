@@ -18,6 +18,7 @@ class Team:
     manager: str
     human: bool = False
     style: str = "balanced"  # rivals: chalk / balanced / longshot / saver
+    player_id: int | None = None  # human managers in an online league: 0 = the commissioner
     points: int = 0  # this season
     segment_points: list[int] = field(default_factory=lambda: [0, 0, 0])
     event_points: dict[int, int] = field(default_factory=dict)  # event index -> points
@@ -118,6 +119,7 @@ class Team:
             "manager": self.manager,
             "human": self.human,
             "style": self.style,
+            "player_id": self.player_id,
             "points": self.points,
             "segment_points": self.segment_points,
             "event_points": {str(k): v for k, v in self.event_points.items()},
@@ -132,7 +134,7 @@ class Team:
 
     @classmethod
     def from_dict(cls, d: dict) -> Team:
-        t = cls(d["name"], d["manager"], d["human"], d["style"])
+        t = cls(d["name"], d["manager"], d["human"], d["style"], d.get("player_id"))
         t.points = d["points"]
         t.segment_points = d["segment_points"]
         t.event_points = {int(k): v for k, v in d["event_points"].items()}

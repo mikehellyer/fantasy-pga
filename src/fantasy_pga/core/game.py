@@ -1,5 +1,9 @@
 """The whole game: a season of tournaments, your fantasy team and the rival
 managers in your league, the FedExCup race, and saving and loading.
+
+A league can have several human managers (an online league with friends). Each
+computer shows the game from its own manager's point of view (`me_index`), but
+only the commissioner's computer plays the golf.
 """
 
 from __future__ import annotations
@@ -45,6 +49,9 @@ class Game:
         self.history: list[dict] = []  # one per finished season
         self.records: dict = {}
         self.season_over = False
+        self.reports: list[dict] = []  # what happened in each round of the current tournament
+        self.online: dict | None = None  # {"code", "name"} for an online league
+        self.me_index = 0  # which team is "you" on this computer (not saved)
         self._bonus_cache: tuple[int, dict] | None = None
 
     # ================================================================ setup
@@ -60,9 +67,43 @@ class Game:
         g.start_event()
         return g
 
+    @classmethod
+    def new_league(
+        cls,
+        players: list[tuple[str, str]],
+        ai_rivals: int,
+        name: str = "",
+        seed: int | None = None,
+        golfers=None,
+    ) -> Game:
+        """An online league: human managers [(manager, team name)] - the commissioner first -
+        plus up to 11 computer managers to fill the league."""
+        g = cls()
+        g.manager = players[0][0] or "Commissioner"
+        g.seed = seed if seed is not None else random.randrange(1_000_000)
+        g.golfers = golfers if golfers is not None else load_golfers()
+        g.teams = [
+            Team(team or f"Team {i + 1}", manager or f"Manager {i + 1}", human=True, player_id=i)
+            for i, (manager, team) in enumerate(players)
+        ]
+        ai_rivals = max(0, min(ai_rivals, len(data.RIVALS), 12 - len(players)))
+        g.teams += [Team(n, m, False, s) for n, m, s in data.RIVALS[:ai_rivals]]
+        g.online = {"name": name}
+        humans = ", ".join(t.manager for t in g.teams if t.human)
+        g.news = [f"{name or 'The league'} tees off! Managers: {humans}."]
+        g.start_event()
+        return g
+
     @property
     def me(self) -> Team:
-        return self.teams[0]
+        return self.teams[self.me_index]
+
+    @property
+    def multiplayer(self) -> bool:
+        return sum(1 for t in self.teams if t.human) > 1
+
+    def team_index(self, player_id: int) -> int:
+        return next(i for i, t in enumerate(self.teams) if t.human and t.player_id == player_id)
 
     @property
     def event(self) -> data.Event:
@@ -132,6 +173,7 @@ class Game:
         field = self.make_field(ev, rng)
         self.tournament = Tournament(self.event_index, field, rng.randrange(1_000_000_000))
         self._bonus_cache = None
+        self.reports = []
         seg = ev.segment
         big_left = sum(
             1
@@ -146,8 +188,8 @@ class Game:
                 ai_pick(team, self.tournament, self.golfers, pick_rng, big_left)
 
     # ================================================================ your lineup
-    def can_pick(self, g: int) -> tuple[bool, str]:
-        me = self.me
+    def can_pick(self, g: int, team: Team | None = None) -> tuple[bool, str]:
+        me = team or self.me
         if g not in self.t.field:
             return False, "not playing this week"
         if g in me.picks:
@@ -160,9 +202,9 @@ class Game:
             return False, f"no starts left for him in {data.SEGMENT_NAMES[self.segment]}"
         return True, ""
 
-    def toggle_pick(self, g: int) -> str:
+    def toggle_pick(self, g: int, team: Team | None = None) -> str:
         """Add or drop a golfer from your six. Returns a message if it can't be done."""
-        me = self.me
+        me = team or self.me
         if self.t.round_no > 0:
             return "Your six are fixed once the tournament starts."
         if g in me.picks:
@@ -172,7 +214,7 @@ class Game:
             if me.captain == g:
                 me.captain = me.starters[0] if me.starters else None
             return ""
-        ok, why = self.can_pick(g)
+        ok, why = self.can_pick(g, me)
         if not ok:
             return f"Can't pick {self.golfers[g].name}: {why}."
         me.picks.append(g)
@@ -182,9 +224,9 @@ class Game:
             me.captain = me.starters[0]
         return ""
 
-    def toggle_starter(self, g: int) -> str:
+    def toggle_starter(self, g: int, team: Team | None = None) -> str:
         """Move a golfer between the starters and the bench."""
-        me = self.me
+        me = team or self.me
         if g not in me.picks:
             return ""
         if g in me.starters:
@@ -206,33 +248,39 @@ class Game:
         me.starters.append(g)
         return ""
 
-    def set_captain(self, g: int) -> str:
-        me = self.me
+    def set_captain(self, g: int, team: Team | None = None) -> str:
+        me = team or self.me
         if g not in me.picks:
             return ""
         if g not in me.starters:
-            msg = self.toggle_starter(g)
+            msg = self.toggle_starter(g, me)
             if msg:
                 return msg
         me.captain = g
         return ""
 
-    def auto_pick(self):
-        """Fill the rest of your six with the best available golfers (keeps anyone you've picked)."""
-        me = self.me
+    def auto_pick(self, team: Team | None = None):
+        """Fill the rest of your six with the best available golfers (keeps anyone you've picked).
+        Between rounds, just fill any empty starting spots and make sure there's a captain."""
+        me = team or self.me
         if self.t.round_no > 0:
+            for g in me.picks:
+                if len(me.starters) < data.STARTERS and g not in me.starters:
+                    self.toggle_starter(g, me)
+            if me.captain not in me.starters and me.starters:
+                me.captain = me.starters[0]
             return
         ranked = sorted(self.t.field, key=lambda g: -(self.golfers[g].skill + self.golfers[g].form_bonus))
         for g in ranked:
             if len(me.picks) >= data.ROSTER_SIZE:
                 break
             if g not in me.picks and me.starts_left(g, self.segment) > 0:
-                self.toggle_pick(g)
+                self.toggle_pick(g, me)
         me.starters = sorted(me.picks, key=lambda g: -self.golfers[g].skill)[: data.STARTERS]
         me.captain = me.starters[0] if me.starters else None
 
-    def lineup_problem(self) -> str:
-        me = self.me
+    def lineup_problem(self, team: Team | None = None) -> str:
+        me = team or self.me
         if len(me.picks) < data.ROSTER_SIZE:
             return f"Pick {data.ROSTER_SIZE - len(me.picks)} more golfer(s) - you need {data.ROSTER_SIZE}."
         if len(me.starters) < data.STARTERS:
@@ -242,6 +290,33 @@ class Game:
         if me.captain not in me.starters:
             return "Choose a captain from your starters."
         return ""
+
+    def lineup_of(self, team: Team | None = None) -> dict:
+        """A team's lineup, as sent over the internet in an online league."""
+        me = team or self.me
+        return {"picks": list(me.picks), "starters": list(me.starters), "captain": me.captain}
+
+    def apply_lineup(self, team: Team, lineup: dict) -> None:
+        """Use a lineup sent in by a manager, keeping to all the rules (anything
+        not allowed is quietly left out)."""
+        if self.t.round_no == 0:
+            team.clear_week()
+            for g in lineup.get("picks", [])[: data.ROSTER_SIZE]:
+                if isinstance(g, int) and 0 <= g < len(self.golfers):
+                    self.toggle_pick(g, team)
+            team.starters = []
+        else:
+            team.starters = [g for g in team.starters if g not in team.picks]  # i.e. empty
+        for g in lineup.get("starters", []):
+            if g in team.picks and g not in team.starters and len(team.starters) < data.STARTERS:
+                self.toggle_starter(g, team)
+        captain = lineup.get("captain")
+        if captain in team.starters:
+            team.captain = captain
+        elif team.starters:
+            team.captain = team.starters[0]
+        else:
+            team.captain = None
 
     # ================================================================ playing
     def round_points(self, g: int, r: int) -> dict:
@@ -263,6 +338,12 @@ class Game:
         if problem:
             raise LineupError(problem)
         r = t.round_no
+        # other managers who haven't sorted out their team: their caddie does it
+        for team in self.teams:
+            if team.human and team is not self.me and self.lineup_problem(team):
+                self.auto_pick(team)
+                if r == 0:
+                    self.news.insert(0, f"{team.manager} didn't pick a team - their caddie picked it.")
         seg = self.segment
         if r >= 2:
             for team in self.teams:
@@ -274,22 +355,25 @@ class Game:
         t.play_round(self.golfers)
         for team in self.teams:
             team.score_round(t, r, self.pars, self.round_points)
-        report = {"round": r + 1, "notes": [], "withdrawn": []}
+        report = {"round": r + 1, "notes": [], "withdrawn": [], "notes_by_team": {}}
         if not t.complete:
             wrng = self.rng("wd", r)
             for g in t.active():
                 if wrng.random() < WITHDRAW_CHANCE:
                     t.withdrawn.append(g)
                     report["withdrawn"].append(g)
-            before = len(self.me.notes)
-            for team in self.teams:
+            for i, team in enumerate(self.teams):
+                before = len(team.notes)
                 team.auto_swap(seg, t, self.golfers)
-            report["notes"] = self.me.notes[before:]
+                if team.human and team.notes[before:]:
+                    report["notes_by_team"][str(i)] = team.notes[before:]
+            report["notes"] = report["notes_by_team"].get(str(self.me_index), [])
         leader = t.leaderboard()[0][0]
         if r and leader != leader_before:
             report["new_leader"] = leader
         if t.complete:
             report["result"] = self.finish_event()
+        self.reports.append(report)
         return report
 
     def finish_event(self) -> dict:
@@ -340,31 +424,34 @@ class Game:
 
         winner = self.golfers[t.winner]
         best_team = max(self.teams, key=lambda tm: tm.event_total)
-        mine = self.me.event_total
+        mine = self.teams[0].event_total
         rank = 1 + sum(1 for tm in self.teams if tm.event_total > mine)
         summary = {
             "event": self.event_index,
             "winner": t.winner,
             "score": t.total(t.winner),
-            "my_points": mine,
+            "my_points": mine,  # the first human team's (kept for old saves)
             "my_rank": rank,
+            "team_points": [tm.event_total for tm in self.teams],
             "best_team": best_team.name,
             "best_points": best_team.event_total,
             "top": [g for g, _, _ in t.leaderboard()[:5]],
         }
         self.results.append(summary)
-        self.news.insert(
-            0,
-            f"{winner.name} wins the {ev.name} at {to_par(t.total(t.winner))}. "
-            f"{self.me.name} scored {mine} points ({_ordinal(rank)} in the league this week).",
-        )
+        if self.multiplayer:
+            week = f"Top team this week: {best_team.name} ({best_team.event_total} points)."
+        else:
+            week = f"{self.teams[0].name} scored {mine} points ({_ordinal(rank)} in the league this week)."
+        self.news.insert(0, f"{winner.name} wins the {ev.name} at {to_par(t.total(t.winner))}. {week}")
         if ev.real_winner and self.season == FIRST_SEASON:
             same = ev.real_winner == winner.name
             self.news.insert(
                 1,
                 f"In real life {ev.real_winner} won it in 2026" + (" - the same winner!" if same else "."),
             )
-        self._update_records(summary)
+        for i, team in enumerate(self.teams):
+            if team.human:
+                self._update_records(i, summary)
         last_in_segment = self.event_index == max(data.segment_events(ev.segment))
         if last_in_segment:
             champ = max(self.teams, key=lambda tm: tm.segment_points[ev.segment])
@@ -375,18 +462,29 @@ class Game:
         self.news = self.news[:40]
         return summary
 
-    def _update_records(self, summary: dict):
-        rec = self.records
-        pts = summary["my_points"]
+    def my_records(self) -> dict:
+        return self.records.get(str(self.me_index), {})
+
+    def week_points(self, summary: dict, team_index: int | None = None) -> tuple[int, int]:
+        """(points, league place) for a team in a finished event's summary."""
+        i = self.me_index if team_index is None else team_index
+        pts = summary.get("team_points")
+        if not pts:
+            return summary["my_points"], summary["my_rank"]
+        return pts[i], 1 + sum(1 for p in pts if p > pts[i])
+
+    def _update_records(self, i: int, summary: dict):
+        rec = self.records.setdefault(str(i), {})
+        pts, place = self.week_points(summary, i)
         if pts > rec.get("best_event", (-999,))[0]:
             rec["best_event"] = (pts, self.event.name, self.season)
         if pts < rec.get("worst_event", (9999,))[0]:
             rec["worst_event"] = (pts, self.event.name, self.season)
-        for r in self.me.rounds:
+        for r in self.teams[i].rounds:
             for g, p in r["points"].items():
                 if p > rec.get("best_golfer_round", (-999,))[0]:
                     rec["best_golfer_round"] = (p, self.golfers[g].name, self.event.name, self.season)
-        rec["weekly_wins"] = rec.get("weekly_wins", 0) + (1 if summary["my_rank"] == 1 else 0)
+        rec["weekly_wins"] = rec.get("weekly_wins", 0) + (1 if place == 1 else 0)
 
     def next_event(self):
         """Move on to the next tournament (or the next season)."""
@@ -418,8 +516,9 @@ class Game:
         fedex = self.fedex_table()
         entry = {
             "season": self.season,
-            "position": self.my_position(),
-            "points": self.me.points,
+            "position": table.index(self.teams[0]) + 1,
+            "points": self.teams[0].points,
+            "table": [[tm.name, tm.points] for tm in table],
             "champion": table[0].name,
             "champion_points": table[0].points,
             "segments": [max(self.teams, key=lambda tm, s=s: tm.segment_points[s]).name for s in range(3)],
@@ -489,7 +588,7 @@ class Game:
     # ================================================================ save / load
     def to_dict(self) -> dict:
         return {
-            "version": 1,
+            "version": 2,
             "manager": self.manager,
             "seed": self.seed,
             "season": self.season,
@@ -503,6 +602,8 @@ class Game:
             "history": self.history,
             "records": self.records,
             "season_over": self.season_over,
+            "reports": self.reports,
+            "online": self.online,
         }
 
     @classmethod
@@ -519,8 +620,16 @@ class Game:
         g.results = d["results"]
         g.news = d["news"]
         g.history = d["history"]
-        g.records = {k: tuple(v) if isinstance(v, list) else v for k, v in d.get("records", {}).items()}
+        records = d.get("records", {})
+        if records and not all(k.isdigit() for k in records):
+            records = {"0": records}  # a v0.1 save: the records were all the player's own
+        g.records = {
+            i: {k: tuple(v) if isinstance(v, list) else v for k, v in rec.items()}
+            for i, rec in records.items()
+        }
         g.season_over = d.get("season_over", False)
+        g.reports = d.get("reports", [])
+        g.online = d.get("online")
         return g
 
     def save(self, path: Path):

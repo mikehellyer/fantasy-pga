@@ -36,6 +36,13 @@ def open_update(app):
 
 
 def autosave(app):
+    league = getattr(app, "league", None)
+    if league is not None:  # online games are kept in the league's own file
+        try:
+            league._save_cache()
+        except OSError:
+            pass
+        return
     try:
         app.game.save(save_path())
     except OSError:
@@ -108,6 +115,47 @@ class MessageScene(Scene):
             self.menu.draw(surf)
         else:
             T.text(surf, "Press any key", (r.centerx, r.bottom - 20), T.LIGHT_GREY, size=11, center=True)
+
+
+class BusyScene(Scene):
+    """Shows 'CONNECTING...' while fn() talks to the league server, then hands over
+    to on_done(result). A connection problem is shown as a message."""
+
+    def __init__(self, app, label, fn, on_done=None, on_error=None):
+        super().__init__(app)
+        self.label, self.fn, self.on_done, self.on_error = label, fn, on_done, on_error
+        self.under = app.scenes[-1] if app.scenes else None
+        self.frames = 0
+
+    def update(self, dt):
+        from ..core.game import LineupError
+        from ..core.online import OnlineError
+
+        self.frames += 1
+        if self.frames != 3:  # let "CONNECTING" appear on screen first
+            return
+        try:
+            result = self.fn()
+        except (OnlineError, LineupError, OSError) as exc:
+            self.app.pop()
+            if self.on_error:
+                self.on_error(exc)
+            else:
+                self.app.push(MessageScene(self.app, "LEAGUE SERVER PROBLEM", [str(exc)]))
+            return
+        self.app.pop()
+        if self.on_done:
+            self.on_done(result)
+
+    def draw(self, surf):
+        if self.under:
+            self.under.draw(surf)
+        r = pygame.Rect(T.CANVAS_W // 2 - 150, T.CANVAS_H // 2 - 24, 300, 48)
+        pygame.draw.rect(surf, T.BLACK, r.move(4, 4))
+        pygame.draw.rect(surf, T.BLUE, r)
+        pygame.draw.rect(surf, T.CYAN, r, 2)
+        dots = "." * (1 + (pygame.time.get_ticks() // 300) % 3)
+        T.text(surf, self.label.upper() + dots, (r.centerx, r.y + 16), T.WHITE, bold=True, center=True)
 
 
 # --------------------------------------------------------------------------- new game

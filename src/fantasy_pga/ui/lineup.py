@@ -136,6 +136,11 @@ class PickScene(Scene):
         if is_back(ev):
             autosave(self.app)
             self.app.pop()
+            league = getattr(self.app, "league", None)
+            if league and not league.commissioner and not self.g.t.complete:
+                from .screens import BusyScene
+
+                self.app.push(BusyScene(self.app, "Sending your lineup", league.submit_lineup))
             return
         if ev.type == pygame.KEYDOWN:
             if ev.key == pygame.K_s:

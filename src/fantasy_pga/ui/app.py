@@ -45,6 +45,7 @@ class App:
         self.scenes: list[Scene] = []
         self.running = True
         self.game = None
+        self.league = None  # an online league, when playing one
         self.update_info = None
         updater.check_async(self._on_update_info)
 

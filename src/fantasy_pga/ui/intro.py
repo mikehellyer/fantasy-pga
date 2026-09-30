@@ -136,12 +136,13 @@ class TitleScene(Scene):
         items = [
             ("New Game", self.new_game),
             ("Continue Saved Game", self.load_game, has_save),
+            ("Online League", self.online),
             ("Quit", self.quit),
         ]
         info = self.app.update_info
         if info:
             items.insert(0, (f"UPDATE TO v{info['version']}", self.download_update, True, "alert"))
-        self.menu = Menu(items, T.CANVAS_W // 2 - 110, 238 - (18 if info else 0), w=220, sound=self.app.sound)
+        self.menu = Menu(items, T.CANVAS_W // 2 - 110, 222 - (18 if info else 0), w=220, sound=self.app.sound)
         self._menu_has_update = bool(info)
 
     def download_update(self):
@@ -166,6 +167,12 @@ class TitleScene(Scene):
 
         self.app.sound.stop("tune")
         self.app.push(NewGameScene(self.app))
+
+    def online(self):
+        from .online_ui import OnlineMenuScene
+
+        self.app.sound.stop("tune")
+        self.app.push(OnlineMenuScene(self.app))
 
     def load_game(self):
         from .hub import HubScene

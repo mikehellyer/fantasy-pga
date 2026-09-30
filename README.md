@@ -60,6 +60,34 @@ All the point values are in `src/fantasy_pga/core/data.py`, so they're easy to c
   sudden-death playoff, and now and then a golfer withdraws injured.
 - In the first season, each result screen also shows who really won that tournament in 2026.
 
+## Online leagues: play with your friends
+
+Choose **Online League** on the title screen.
+
+1. **The commissioner** (whoever sets it up) chooses *Create a new league*. The game shows a
+   six-letter **league code**.
+2. **Friends** install the game, choose *Join a league with a code* and type it in. The lobby
+   shows everyone as they join.
+3. The commissioner decides how many **computer managers** fill the empty places (a league has
+   up to 12 teams) and starts the season. Nobody can join after that.
+4. **Every week** each manager picks their team on their own computer. Leaving the pick screen
+   sends your lineup. The menu shows who has sent one in.
+5. **The commissioner plays each round** when the lineups are in (or plays anyway, and anyone
+   missing gets their caddie's picks before round 1, or keeps their lineup between rounds).
+6. Everyone's game picks up the new round by itself within a few seconds. **WATCH ROUND N!**
+   flashes on the menu so you can see it play out live, and then you set your lineup for the
+   next round.
+
+Only the commissioner's computer plays the golf. It uploads the whole league after every round
+and friends download it, so everyone sees exactly the same tournament. Friends only ever send
+their lineups. If the commissioner's internet drops just after a round, the round is kept and
+sent next time (or with **Sync Now**).
+
+The league lives in a free [Supabase](https://supabase.com) database set up with
+`supabase/schema.sql`, and the game finds it through `src/fantasy_pga/online_config.py`. Supabase
+pauses a free project after a week with no activity. If that happens, press **Restore** in the
+Supabase dashboard.
+
 ## Screens
 
 - **Pick Your Team:** the whole field with world rank, rating, form, betting odds and the starts
@@ -76,7 +104,8 @@ All the point values are in `src/fantasy_pga/core/data.py`, so they're easy to c
 - After the TOUR Championship the season ends. Golfers improve or decline with how they played,
   the world ranking is redone, and the next season starts in Hawaii.
 
-The game autosaves after every round (`~/.fantasy_pga/savegame.json`).
+The game autosaves after every round (`~/.fantasy_pga/savegame.json`, and online leagues in
+`~/.fantasy_pga/online/`).
 
 Controls: number keys, arrows + RETURN, or the mouse. Right-click or ESC goes back. **F11**
 switches fullscreen on and off.
@@ -108,10 +137,12 @@ python3 -m venv .venv
 ## Project layout
 
 ```
-src/fantasy_pga/core/   game logic (no pygame): golfers, courses, golf engine, fantasy scoring, season
+src/fantasy_pga/core/   game logic (no pygame): golfers, courses, golf engine, fantasy scoring, season,
+                        online leagues (online.py)
 src/fantasy_pga/ui/     pygame front end: intro, menus, pick screen, live round, tables, sound
 tests/                  pytest tests
 tools/                  build.py (installers) and make_icon.py
+supabase/schema.sql     the online league database (tables + functions)
 ```
 
 ## Building installers

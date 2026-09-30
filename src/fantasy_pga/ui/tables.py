@@ -112,7 +112,7 @@ class TeamScene(_Page):
         T.frame(surf)
         T.header(surf, tm.name.upper(), f"Manager: {tm.manager}")
         y = TOP
-        if not tm.human and t.round_no == 0:
+        if tm is not g.me and t.round_no == 0:
             T.text(surf, "Rivals' lineups are secret until the tournament starts!", (L, y + 20), T.LIGHT_RED)
             T.footer(surf, "ESC: back")
             return
@@ -187,8 +187,9 @@ class ScheduleScene(_Page):
                 ev.kind, ""
             )
             if r:
+                pts, place = g.week_points(r)
                 cells = [ev.date, ev.short, tag, fit(g.golfers[r["winner"]].name, 22), to_par(r["score"]),
-                         str(r["my_points"]), ordinal(r["my_rank"])]  # fmt: skip
+                         str(pts), ordinal(place)]  # fmt: skip
                 col = T.WHITE
             elif i == g.event_index:
                 cells = [ev.date, ev.short, tag, "<< THIS WEEK >>", "", "", ""]
@@ -416,7 +417,7 @@ class RecordsScene(_Page):
         x, y = L, TOP
         T.text(surf, "YOUR RECORDS", (x, y), T.YELLOW, bold=True)
         y += 16
-        rec = g.records
+        rec = g.my_records()
         lines = []
         if "best_event" in rec:
             p, name, season = rec["best_event"][:3]
@@ -437,9 +438,13 @@ class RecordsScene(_Page):
         if not g.history:
             T.text(surf, "Your first season is still going.", (x, y), T.LIGHT_GREY, size=11)
         for h in g.history[-8:]:
+            pos, pts = h["position"], h["points"]
+            names = [row[0] for row in h.get("table", [])]
+            if g.me.name in names:
+                pos, pts = names.index(g.me.name) + 1, h["table"][names.index(g.me.name)][1]
             T.text(
                 surf,
-                f"{h['season']}: you {ordinal(h['position'])} ({h['points']} pts). "
+                f"{h['season']}: you {ordinal(pos)} ({pts} pts). "
                 f"Champions: {h['champion']}. FedExCup: {h['fedex_champion']}",
                 (x, y),
                 T.WHITE,

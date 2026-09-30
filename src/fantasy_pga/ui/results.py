@@ -105,7 +105,7 @@ class EventResultScene(Scene):
         # the league this week
         y += 22
         week = sorted(g.teams, key=lambda tm: -tm.event_total)
-        T.text(surf, f"This week: {ordinal(week.index(me) + 1)} of 12", (x, y), T.CYAN)
+        T.text(surf, f"This week: {ordinal(week.index(me) + 1)} of {len(g.teams)}", (x, y), T.CYAN)
         T.text(surf, f"Top: {fit(week[0].name, 18)} {week[0].event_total}", (x, y + 14), T.WHITE, size=11)
         T.text(surf, f"Season: {ordinal(g.my_position())}  ({me.points} pts)", (x, y + 28), T.WHITE, size=11)
         last = g.results[-1] if g.results else {}

@@ -27,8 +27,9 @@ WIND_WORDS = ["CALM", "BREEZY", "WINDY", "BLOWING A GALE"]
 
 
 class LiveRoundScene(Scene):
-    def __init__(self, app, report: dict):
+    def __init__(self, app, report: dict, replay: bool = False):
         super().__init__(app)
+        self.replay = replay  # an online friend watching a round the commissioner has played
         g = self.g
         self.report = report
         self.r = report["round"] - 1
@@ -318,15 +319,20 @@ class LiveRoundScene(Scene):
         t = g.t
         me = g.me
         lines = []
-        lead = t.leaderboard()[0] if not t.complete else None
-        if t.complete:
+        final = self.r == 3 and t.complete
+        if final:
             lines.append(f"{g.golfers[t.winner].name} wins at {to_par(t.total(t.winner))}!")
         else:
+            lead = t.leaderboard(rounds=self.r + 1)[0]
             lines.append(f"Leader: {g.golfers[lead[0]].name} {to_par(lead[2])}")
+
+        def so_far(tm):  # a team's points up to the end of this round
+            return sum(r["total"] for r in tm.rounds[: self.r + 1])
+
         pts = me.rounds[self.r]["total"]
-        lines.append(f"Your team scored {pts} points this round ({me.event_total} this week).")
-        others = sorted(g.teams, key=lambda tm: -tm.event_total)
-        lines.append(f"You're {ordinal(others.index(me) + 1)} of 12 in the league this week.")
+        lines.append(f"Your team scored {pts} points this round ({so_far(me)} this week).")
+        others = sorted(g.teams, key=lambda tm: -so_far(tm))
+        lines.append(f"You're {ordinal(others.index(me) + 1)} of {len(g.teams)} in the league this week.")
         if self.r == 1 and t.cut_score is not None:
             lines.append(
                 f"The cut fell at {to_par(t.cut_score)}: {len(t.cut_made)} golfers play the weekend."
@@ -336,7 +342,8 @@ class LiveRoundScene(Scene):
                 lines.append("Missed the cut: " + ", ".join(gone))
         for p in self.report.get("withdrawn", []):
             lines.append(f"{g.golfers[p].name} has withdrawn injured.")
-        lines += self.report.get("notes", [])
+        by_team = self.report.get("notes_by_team")
+        lines += by_team.get(str(g.me_index), []) if by_team is not None else self.report.get("notes", [])
         wrapped = []
         for line in lines:
             wrapped += T.wrap(line, 50)
@@ -344,7 +351,7 @@ class LiveRoundScene(Scene):
         pygame.draw.rect(surf, T.BLACK, box.move(4, 4))
         pygame.draw.rect(surf, T.BLUE, box)
         pygame.draw.rect(surf, T.YELLOW, box, 2)
-        title = "FINAL ROUND COMPLETE" if t.complete else f"ROUND {self.r + 1} COMPLETE"
+        title = "FINAL ROUND COMPLETE" if final else f"ROUND {self.r + 1} COMPLETE"
         T.text(surf, title, (box.centerx, box.y + 10), T.YELLOW, bold=True, center=True)
         for i, line in enumerate(wrapped):
             T.text(surf, line, (box.x + 16, box.y + 32 + i * 15), T.WHITE)
